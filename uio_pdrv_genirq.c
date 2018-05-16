@@ -224,7 +224,7 @@ static int uio_pdrv_genirq_probe(struct platform_device *pdev)
         printk( KERN_ERR KBUILD_MODNAME ":have udma informations ,but fail to init!\n");
 	}
     else  {  
-    	printk( KERN_ALERT KBUILD_MODNAME ": no udma need to be init.\n", );
+    	printk( KERN_ALERT KBUILD_MODNAME ": no udma need to be init.\n" );
 
 	}
     //
