@@ -26,7 +26,7 @@
 #include <linux/cdev.h>
 #include <linux/uio_driver.h>
 
-#include "udma.h"  // billy
+#include <linux/udma.h>  // billy
 
 #define UIO_MAX_DEVICES		(1U << MINORBITS)
 
@@ -521,15 +521,14 @@ static ssize_t uio_read(struct file *filep, char __user *buf,
 	ssize_t retval;
 	s32 event_count;
 
+	if (is_udma()) // for uio dma transaction.
+		return udma_read( filep , buf, count, ppos);
+
 	if (!idev->info->irq)
 		return -EIO;
 
-	if (count != sizeof(s32)){
-		//return -EINVAL;  bypass
-		printk( KERN_WARNING KBUILD_MODNAME ": Udma_read entering\n"); // billy
-		//udma_read( filep , buf, count, ppos);
-		return udma_read( filep , buf, count, ppos);
-	}
+	if (count != sizeof(s32))
+		return -EINVAL; 
 
 	add_wait_queue(&idev->wait, &wait);
 
@@ -574,24 +573,26 @@ static ssize_t uio_write(struct file *filep, const char __user *buf,
 	ssize_t retval;
 	s32 irq_on;
 
+	if (is_udma())  // for uio dma transaction
+		return udma_write( filep , buf, count, ppos);
+
 	if (!idev->info->irq)
-		//return -EIO;   bypass
+		return -EIO;   
 
 	if (count != sizeof(s32))
-		//return -EINVAL; bypass
+		return -EINVAL; 
 
 	if (!idev->info->irqcontrol)
-		//return -ENOSYS; bypass
+		return -ENOSYS; 
 
-	/*
+	
 	if (copy_from_user(&irq_on, buf, count))
 		return -EFAULT;
 
 	retval = idev->info->irqcontrol(idev->info, irq_on);
 
 	return retval ? retval : sizeof(s32);
-	*/
-	return udma_write( filep , buf, count, ppos);
+
 }
 
 static int uio_find_mem_index(struct vm_area_struct *vma)

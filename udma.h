@@ -17,6 +17,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
+//#ifndef _UDMA_H_
+//#define _UDMA_H_
 
 #include <linux/module.h>
 #include <linux/device.h>
@@ -74,7 +76,7 @@ struct udma_inflight_info {
 struct udma_drvdata {
     struct platform_device *pdev;
 
-    char name[udma_DEV_NAME_MAX_CHARS];
+    char name[UDMA_DEV_NAME_MAX_CHARS];
     uint32_t dir;   // udma_dir
 
     struct semaphore sem;   /* protects mutable data below */
@@ -112,15 +114,20 @@ struct udma_pdev_drvdata {
 };
 
 
+/*
+ * drives/uio/udma.c provides these functions:
+ */
+
 #define NUM_DEVICE_NUMBERS_TO_ALLOCATE (8)
 static dev_t base_devno;
 static int devno_in_use[NUM_DEVICE_NUMBERS_TO_ALLOCATE];
 static struct class *udma_class;
 static DEFINE_SEMAPHORE(devno_lock);
 
-static inline int check_udma(struct platform_device *pdev);
-static ssize_t udma_read(struct file *filp, char __user *userbuf, size_t count, loff_t *f_pos)
-static ssize_t udma_write(struct file *filp, const char __user *userbuf, size_t count, loff_t *f_pos)
-static void teardown_udma( struct platform_device *pdev)
+extern bool is_udma(void); 
+extern int check_udma(struct platform_device *pdev);
+extern ssize_t udma_read(struct file *filp, char __user *userbuf, size_t count, loff_t *f_pos);
+extern ssize_t udma_write(struct file *filp, const char __user *userbuf, size_t count, loff_t *f_pos);
+extern void teardown_udma( struct platform_device *pdev);
 
 

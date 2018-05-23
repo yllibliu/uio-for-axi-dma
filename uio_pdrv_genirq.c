@@ -28,7 +28,7 @@
 #include <linux/of_platform.h>
 #include <linux/of_address.h>
 
-#include "udma.h" // billy
+#include <linux/udma.h> // billy
 
 #define DRIVER_NAME "uio_pdrv_genirq"
 

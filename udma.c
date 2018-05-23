@@ -18,41 +18,62 @@
 #include <linux/cdev.h>
 #include <linux/wait.h>
 
-#include "udma.h"
-
+#include <linux/udma.h>
 
 static struct udma_drvdata *udma_rx_drvdata, *udma_tx_drvdata;
 
 
+
 static inline int udma_init(struct platform_device *pdev)
 {
-	//udma_tx_drvdata = devm_kzalloc( &pdev->dev, sizeof(*udma_tx_drvdata), GFP_KERNEL );
-	//udma_rx_drvdata = devm_kzalloc( &pdev->dev, sizeof(*udma_tx_drvdata), GFP_KERNEL );
-	
+	printk( KERN_WARNING KBUILD_MODNAME ": udma_init enter\n");
+	udma_tx_drvdata = devm_kzalloc( &pdev->dev, sizeof(*udma_tx_drvdata), GFP_KERNEL );
+	udma_rx_drvdata = devm_kzalloc( &pdev->dev, sizeof(*udma_tx_drvdata), GFP_KERNEL );
+	const char * p_dma_name;
+	int rv;
+
 	// tx channel init
+	printk( KERN_WARNING KBUILD_MODNAME ": init start\n");
 	udma_tx_drvdata->pdev = pdev;
+	printk( KERN_WARNING KBUILD_MODNAME ": udma_tx_drvdata->pdev = pdev; enter\n");
 	udma_tx_drvdata->in_use = 0;
+	printk( KERN_WARNING KBUILD_MODNAME ": in_use enter\n");
 	udma_tx_drvdata->state = DMA_IDLE;
+	printk( KERN_WARNING KBUILD_MODNAME ": DMA_IDLE enter\n");
     spin_lock_init( &udma_tx_drvdata->state_lock );
+    printk( KERN_WARNING KBUILD_MODNAME ": spin_lock_init enter\n");
     //list_add_tail( &udma_tx_drvdata->node, &p_pdev_info->udma_list );   dont know wut r doing
     sema_init( &udma_tx_drvdata->sem, 1 );
+    printk( KERN_WARNING KBUILD_MODNAME ": sema_init enter\n");
     init_waitqueue_head( &udma_tx_drvdata->wq );
+    printk( KERN_WARNING KBUILD_MODNAME ": init_waitqueue_head enter\n");
     atomic_set( &udma_tx_drvdata->packets_sent, 0 );
+    printk( KERN_WARNING KBUILD_MODNAME ": packets_sent enter\n");
     atomic_set( &udma_tx_drvdata->packets_rcvd, 0 );
-    udma_tx_drvdata->name = "loop_tx"
+    printk( KERN_WARNING KBUILD_MODNAME ": packets_rcvd enter\n");
+
+    rv = of_property_read_string_index( pdev->dev.of_node, "dma-names", 0 , &p_dma_name);
+    printk( KERN_WARNING KBUILD_MODNAME ": of_property_read_string_index enter\n");
+    strncpy( udma_tx_drvdata->name, p_dma_name, UDMA_DEV_NAME_MAX_CHARS-1 );
+    printk( KERN_WARNING KBUILD_MODNAME ": strncpy enter\n");
+    udma_tx_drvdata->name[UDMA_DEV_NAME_MAX_CHARS-1] = '\0';
+    printk( KERN_WARNING KBUILD_MODNAME ": name enter\n");
+
     udma_tx_drvdata->dir = 2;	
+    printk( KERN_WARNING KBUILD_MODNAME ": dir enter\n");
     udma_tx_drvdata->chan = dma_request_slave_channel(&pdev->dev, udma_tx_drvdata->name);
+
 
 	if ( !udma_tx_drvdata->chan )
 	{
 		printk( KERN_WARNING KBUILD_MODNAME 
 		": couldn't find dma channel: %s, deferring...\n",
 		udma_tx_drvdata->name);
-
-		outer_rv = -EPROBE_DEFER;
+		return -1;
 	}
 
 	udma_tx_drvdata->init_done = true;
+	atomic_set(&udma_tx_drvdata->accepting, 1);
 	printk( KERN_ALERT KBUILD_MODNAME ": %s (%s) available\n", 
 							udma_tx_drvdata->name,
 							udma_tx_drvdata->dir == UDMA_DEV_TO_CPU ? "RX" : "TX");
@@ -68,141 +89,45 @@ static inline int udma_init(struct platform_device *pdev)
     init_waitqueue_head( &udma_rx_drvdata->wq );
     atomic_set( &udma_rx_drvdata->packets_sent, 0 );
     atomic_set( &udma_rx_drvdata->packets_rcvd, 0 );
-    udma_rx_drvdata->name = "loop_rx";	
+
+    rv = of_property_read_string_index( pdev->dev.of_node, "dma-names", 1 , &p_dma_name);
+    strncpy( udma_rx_drvdata->name, p_dma_name, UDMA_DEV_NAME_MAX_CHARS-1 );
+    udma_rx_drvdata->name[UDMA_DEV_NAME_MAX_CHARS-1] = '\0';	
     udma_rx_drvdata->dir = 1;
 
     udma_rx_drvdata->chan = dma_request_slave_channel(&pdev->dev, "loop_rx");
 
-	if ( !p_info->chan )
+	if ( !udma_rx_drvdata->chan )
 	{
 		printk( KERN_WARNING KBUILD_MODNAME 
 		": couldn't find dma channel: %s, deferring...\n",
 		udma_rx_drvdata->name);
 
-		outer_rv = -EPROBE_DEFER;
+		return -1;
 	}
 	udma_rx_drvdata->init_done = true;
-
+	atomic_set(&udma_rx_drvdata->accepting, 1);
 	printk( KERN_ALERT KBUILD_MODNAME ": %s (%s) available\n", 
 							udma_rx_drvdata->name,
 							udma_rx_drvdata->dir == UDMA_DEV_TO_CPU ? "RX" : "TX");
 
 
 	return 2;
-
-
-	/*
-	int num_dma_names = of_property_count_strings(pdev->dev.of_node, "dma-names"); // should be > 0
-
-	for (dma_name_idx = 0; dma_name_idx < num_dma_names; dma_name_idx++)
-    {
-    	struct udma_drvdata * p_info;
-    	const char * p_dma_name;
-    	int rv;
-
-    	p_info = devm_kzalloc( &pdev->dev, sizeof(*p_info), GFP_KERNEL );
-    	
-    	if ( !p_info )
-    	{
-        	printk( KERN_ERR KBUILD_MODNAME ": failed to allocate udma_drvdata\n");
-        	outer_rv = -ENOMEM;
-        	break;
-    	}  
-
-    	p_info->pdev = pdev;
-    	p_info->in_use = 0;
-    	p_info->state = DMA_IDLE;
-        spin_lock_init( &p_info->state_lock );
-        list_add_tail( &p_info->node, &p_pdev_info->udma_list );
-        sema_init( &p_info->sem, 1 );
-        init_waitqueue_head( &p_info->wq );
-        atomic_set( &p_info->packets_sent, 0 );
-        atomic_set( &p_info->packets_rcvd, 0 );
-	*/
-        /* Read the dma name for the current index */
-    /*
-        rv = of_property_read_string_index(
-                pdev->dev.of_node, "dma-names",
-                dma_name_idx, &p_dma_name);
-
-        if ( rv )
-        {
-            printk( KERN_ERR KBUILD_MODNAME
-                    ": of_property_read_string_index() returned %d\n", rv);
-
-            outer_rv = rv;
-            break;
-        }
-        else
-        {
-            strncpy( p_info->name, p_dma_name, udma_DEV_NAME_MAX_CHARS-1 );
-            p_info->name[udma_DEV_NAME_MAX_CHARS-1] = '\0';
-
-            //printk( KERN_DEBUG KBUILD_MODNAME ": setting up %s\n", p_info->name);
-        }
-	*/
-
-        /* Read the direction for the current index */
-    /*
-        rv = of_property_read_u32_index(
-                pdev->dev.of_node, "udma,dirs",
-                dma_name_idx, &p_info->dir);
-
-        if ( rv )
-        {
-            printk( KERN_ERR KBUILD_MODNAME
-                    ": couldn't read \"udma,dirs\" property for %s\n",
-                    p_info->name );
-
-            outer_rv = rv;
-            break;
-        }
-        else if ( p_info->dir != udma_CPU_TO_DEV && 
-                  p_info->dir != udma_DEV_TO_CPU )
-        {
-            printk( KERN_ERR KBUILD_MODNAME
-                    ": %s specifies unsupported value of \"udma,dirs\": %d\n", 
-                    p_info->name,
-                    p_info->dir);
-
-            outer_rv = -EINVAL;
-            break;
-        }
-    */      
-        /* Get the named DMA channel */
-	/*
-    	p_info->chan = dma_request_slave_channel(&pdev->dev, p_dma_name);
-
-    	if ( !p_info->chan )
-   	 	{
-        	printk( KERN_WARNING KBUILD_MODNAME 
-            	    ": couldn't find dma channel: %s, deferring...\n",
-                	p_info->name);
-
-        	outer_rv = -EPROBE_DEFER;
-    	}
-
-    	printk( KERN_ALERT KBUILD_MODNAME ": %s (%s) available\n", 
-            	p_info->name,
-            	p_info->dir == udma_DEV_TO_CPU ? "RX" : "TX"
-            	);
-	}
-	*/
-
-
-	//if ( outer_rv )
-	//{
-    		// Unroll what we've done here
-    		//teardown_devices( p_pdev_info, pdev );
-	//}
-
-    //return outer_rv;    	
+  	
 }
 
 
-
-static inline int check_udma(struct platform_device *pdev)
+bool is_udma(void)    
 {
+	bool rv = udma_rx_drvdata->init_done && udma_tx_drvdata->init_done; 
+	return rv;
+}
+EXPORT_SYMBOL_GPL(is_udma);
+
+int check_udma(struct platform_device *pdev)
+{
+	printk( KERN_WARNING KBUILD_MODNAME ": check_udma enter\n");
+
 	int num_dma_names = of_property_count_strings(pdev->dev.of_node, "dma-names");
 
     if ( 0 == num_dma_names )  // no udma
@@ -219,17 +144,15 @@ static inline int check_udma(struct platform_device *pdev)
 
     return udma_init(pdev);
 }
+EXPORT_SYMBOL_GPL(check_udma);
+
 
 static void udma_unprepare_after_dma( struct udma_drvdata * p_info );
-
 
 static void udma_dmaengine_callback_func(void *data)
 {
     struct udma_drvdata * p_info = (struct udma_drvdata*)data;
     unsigned long iflags;
-
-    //printk( KERN_ERR KBUILD_MODNAME ": %s: callback fired for %s\n",
-    //        p_info->name, p_info->dir == EZDMA_DEV_TO_CPU ? "RX" : "TX" );
 
     spin_lock_irqsave(&p_info->state_lock, iflags);
 
@@ -475,18 +398,22 @@ static int check_not_in_flight( struct udma_drvdata * p_info )
 
 
 // 
-static ssize_t udma_read(struct file *filp, char __user *userbuf, size_t count, loff_t *f_pos)
+ssize_t udma_read(struct file *filp, char __user *userbuf, size_t count, loff_t *f_pos)
 {
+	//printk( KERN_WARNING KBUILD_MODNAME ": udma_read enter\n");
+    int rv;
     if ( 0 != (count % UDMA_ALIGN_BYTES) )
     {
         printk( KERN_WARNING KBUILD_MODNAME ": %s: unaligned read of %u bytes requested\n", udma_rx_drvdata->name, count);
         return -EINVAL;
     }
+    //printk( KERN_WARNING KBUILD_MODNAME ": UDMA_ALIGN_BYTES pass\n");
     if ( down_interruptible( &udma_rx_drvdata->sem ) )
         return -ERESTARTSYS;
-
+	//printk( KERN_WARNING KBUILD_MODNAME ": down_interruptible pass\n");
     if ( !atomic_read(&udma_rx_drvdata->accepting ) )
     {
+        printk( KERN_WARNING KBUILD_MODNAME ": atomic_read failed\n");
         rv = -EBADF;
     } 
     else
@@ -495,13 +422,13 @@ static ssize_t udma_read(struct file *filp, char __user *userbuf, size_t count, 
         int wait_rv;
 
         prep_rv = udma_prepare_for_dma( udma_rx_drvdata , userbuf, count );
-
+		
         if (prep_rv)
         {
             rv = prep_rv;
             goto out;
         }
-
+		//printk( KERN_WARNING KBUILD_MODNAME ": udma_prepare_for_dma pass\n");
         up( &udma_rx_drvdata->sem );
 
         wait_rv = wait_event_interruptible( udma_rx_drvdata->wq, check_not_in_flight(udma_rx_drvdata) );
@@ -531,81 +458,12 @@ static ssize_t udma_read(struct file *filp, char __user *userbuf, size_t count, 
 
     noup_out:
     return rv;   
-    /*
-    struct udma_drvdata * p_info = (struct ezdma_drvdata*)filp->private_data;
-    ssize_t rv = count;
-
-    // Ensure this is a readable device.
-    if ( UDMA_DEV_TO_CPU != p_info->dir )
-    {
-        printk( KERN_WARNING KBUILD_MODNAME ": %s: can't read, is a TX device\n", p_info->name);
-        return -EINVAL;
-    }
-
-    if ( 0 != (count % EZDMA_ALIGN_BYTES) )
-    {
-        printk( KERN_WARNING KBUILD_MODNAME ": %s: unaligned read of %u bytes requested\n", p_info->name, count);
-        return -EINVAL;
-    }
-
-    //TODO: verify size of count?
-
-    if ( down_interruptible( &p_info->sem ) )
-        return -ERESTARTSYS;
-
-    if ( !atomic_read(&p_info->accepting ) )
-    {
-        rv = -EBADF;
-        goto out;
-    }
-    else
-    {
-        int prep_rv;
-        int wait_rv;
-
-        prep_rv = ezdma_prepare_for_dma( p_info, userbuf, count );
-
-        if (prep_rv)
-        {
-            rv = prep_rv;
-            goto out;
-        }
-
-        up( &p_info->sem );
-
-        wait_rv = wait_event_interruptible( p_info->wq, check_not_in_flight(p_info) );
-
-        if ( down_timeout( &p_info->sem, SEM_TAKE_TIMEOUT ) )
-        {
-            printk( KERN_ALERT KBUILD_MODNAME 
-                    ": %s: read sem take stalled for %d seconds -- probably broken\n",
-                    p_info->name, 
-                    SEM_TAKE_TIMEOUT);
-            goto noup_out;
-        }
-
-        spin_lock_irq(&p_info->state_lock);
-        if ( p_info->state == DMA_IN_FLIGHT && -ERESTARTSYS == wait_rv )
-        {
-            dmaengine_terminate_all( p_info->chan );
-            rv = wait_rv;
-        }
-
-        ezdma_unprepare_after_dma( p_info );    // sets us back to DMA_IDLE
-        spin_unlock_irq(&p_info->state_lock);
-    }
-
-    out:
-    up( &p_info->sem );
-
-    noup_out:
-    return rv;
-    */
 }
+EXPORT_SYMBOL_GPL(udma_read);
 
-static ssize_t udma_write(struct file *filp, const char __user *userbuf, size_t count, loff_t *f_pos)
+ssize_t udma_write(struct file *filp, const char __user *userbuf, size_t count, loff_t *f_pos)
 {
-    
+    //printk( KERN_WARNING KBUILD_MODNAME ": udma_write enter\n");
     //struct udma_drvdata * p_info = (struct ezdma_drvdata*)filp->private_data;
     ssize_t rv = count;
 
@@ -620,12 +478,12 @@ static ssize_t udma_write(struct file *filp, const char __user *userbuf, size_t 
         printk( KERN_WARNING KBUILD_MODNAME ": %s: unaligned write of %u bytes requested\n", udma_tx_drvdata->name, count);
         return -EINVAL;
     }
-
+    //printk( KERN_WARNING KBUILD_MODNAME ": UDMA_ALIGN_BYTES enter\n");
     // Ensure this is a writable device.
 
     if ( down_interruptible( &udma_tx_drvdata->sem ) )
         return -ERESTARTSYS;
-
+    //printk( KERN_WARNING KBUILD_MODNAME ": down_interruptible enter\n");
     if ( !atomic_read(&udma_tx_drvdata->accepting ) )
     {
         rv = -EBADF;
@@ -643,6 +501,7 @@ static ssize_t udma_write(struct file *filp, const char __user *userbuf, size_t 
             rv = prep_rv;
             goto out;
         }
+    	//printk( KERN_WARNING KBUILD_MODNAME ": udma_prepare_for_dma enter\n");
 
         up( &udma_tx_drvdata->sem );
 
@@ -675,9 +534,9 @@ static ssize_t udma_write(struct file *filp, const char __user *userbuf, size_t 
     return rv;
     
 }
+EXPORT_SYMBOL_GPL(udma_write);
 
-//static void teardown_devices( struct udma_pdev_drvdata * p_pdev_info, struct platform_device *pdev)
-static void teardown_udma( struct platform_device *pdev)
+void teardown_udma( struct platform_device *pdev)
 {
 	if (udma_tx_drvdata->init_done){
 		// teardown udma_tx_drvdata channel
@@ -708,4 +567,4 @@ static void teardown_udma( struct platform_device *pdev)
   
 
 }
-
+EXPORT_SYMBOL_GPL(teardown_udma);
